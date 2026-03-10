@@ -1,0 +1,16 @@
+[project]
+id = "TU_PROJECT_ID"
+name = "barapp"
+
+[api]
+enabled = true
+port = 54321
+schemas = ["public"]
+
+[db]
+port = 54322
+
+[auth]
+enabled = true
+site_url = "http://localhost:5173"
+additional_redirect_urls = ["http://localhost:5173"]
