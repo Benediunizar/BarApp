@@ -4,9 +4,10 @@ import { X, Camera, CheckCircle2, Keyboard, ScanLine, AlertCircle } from 'lucide
 interface Props {
   onScan: (data: string) => void
   onClose: () => void
+  externalError?: string
 }
 
-export default function QRScanner({ onScan, onClose }: Props) {
+export default function QRScanner({ onScan, onClose, externalError }: Props) {
   const [scannedData, setScannedData] = useState<string | null>(null)
   const [manualCode, setManualCode] = useState('')
   const [manualError, setManualError] = useState('')
@@ -65,7 +66,6 @@ export default function QRScanner({ onScan, onClose }: Props) {
     setManualError('')
     stopCamera()
     onScan(`MANUAL:${code}`)
-    setScannedData(code)
   }
 
   return (
@@ -114,6 +114,9 @@ export default function QRScanner({ onScan, onClose }: Props) {
 
                 {manualError && (
                   <p className="text-red-400 text-sm text-center mb-3">{manualError}</p>
+                )}
+                {externalError && !manualError && (
+                  <p className="text-red-400 text-sm text-center mb-3">{externalError}</p>
                 )}
 
                 <form onSubmit={handleManualSubmit} className="space-y-4">

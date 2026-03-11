@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react'
 import { supabase } from '../utils/supabase'
-import { Search, Plus, Tag } from 'lucide-react'
+import { Search, Plus, Tag, X } from 'lucide-react'
 import type { MenuItem } from '../types'
 
 interface Props {
@@ -13,6 +13,7 @@ export default function Menu({ onAddToCart }: Props) {
   const [selectedCategory, setSelectedCategory] = useState<string>('all')
   const [loading, setLoading] = useState(true)
   const [addedId, setAddedId] = useState<string | null>(null)
+  const [previewItem, setPreviewItem] = useState<MenuItem | null>(null)
 
   useEffect(() => {
     fetchMenu()
@@ -101,7 +102,8 @@ export default function Menu({ onAddToCart }: Props) {
           {filteredItems.map((item) => (
             <div
               key={item.id}
-              className="bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden hover:shadow-md transition"
+              onClick={() => item.image_url && setPreviewItem(item)}
+              className={`bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden hover:shadow-lg hover:scale-105 transition-all duration-300 ease-in-out ${item.image_url ? 'cursor-pointer' : ''}`}
             >
               {item.image_url && (
                 <img
@@ -123,7 +125,10 @@ export default function Menu({ onAddToCart }: Props) {
                   </span>
                 </div>
                 <button
-                  onClick={() => handleAdd(item)}
+                  onClick={(e) => {
+                    e.stopPropagation()
+                    handleAdd(item)
+                  }}
                   className={`mt-3 w-full py-2.5 rounded-xl font-medium text-sm flex items-center justify-center gap-2 transition ${
                     addedId === item.id
                       ? 'bg-green-500 text-white'
@@ -136,6 +141,58 @@ export default function Menu({ onAddToCart }: Props) {
               </div>
             </div>
           ))}
+        </div>
+      )}
+
+      {/* Modal de preview */}
+      {previewItem && (
+        <div
+          className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center p-4 animate-fade-in"
+          onClick={() => setPreviewItem(null)}
+        >
+          <div
+            className="bg-white rounded-2xl shadow-2xl max-w-md w-full overflow-hidden animate-scale-in"
+            onClick={(e) => e.stopPropagation()}
+          >
+            {/* Botón cerrar */}
+            <div className="relative">
+              <button
+                onClick={() => setPreviewItem(null)}
+                className="absolute top-3 right-3 z-10 bg-black/40 hover:bg-black/60 text-white rounded-full p-1.5 transition"
+              >
+                <X className="w-5 h-5" />
+              </button>
+              {previewItem.image_url && (
+                <img
+                  src={previewItem.image_url}
+                  alt={previewItem.name}
+                  className="w-full max-h-80 object-contain bg-gray-100"
+                />
+              )}
+            </div>
+            <div className="p-5">
+              <div className="flex items-start justify-between gap-3 mb-2">
+                <h3 className="text-xl font-bold text-gray-800">{previewItem.name}</h3>
+                <span className="text-xl font-bold text-primary-600 whitespace-nowrap">
+                  {previewItem.price.toFixed(2)}€
+                </span>
+              </div>
+              <span className="inline-block text-xs font-medium text-primary-600 bg-primary-50 px-2.5 py-1 rounded-full mb-3">
+                {previewItem.category}
+              </span>
+              <p className="text-gray-500">{previewItem.description}</p>
+              <button
+                onClick={() => {
+                  handleAdd(previewItem)
+                  setPreviewItem(null)
+                }}
+                className="mt-4 w-full py-3 rounded-xl font-medium bg-primary-600 hover:bg-primary-700 text-white flex items-center justify-center gap-2 transition"
+              >
+                <Plus className="w-5 h-5" />
+                Añadir al carrito
+              </button>
+            </div>
+          </div>
         </div>
       )}
     </div>

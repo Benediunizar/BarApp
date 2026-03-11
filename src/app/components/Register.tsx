@@ -41,7 +41,8 @@ export default function Register() {
       return
     }
 
-    navigate(role === 'waiter' ? '/waiter' : '/client')
+    await supabase.auth.signOut()
+    navigate('/login')
   }
 
   return (

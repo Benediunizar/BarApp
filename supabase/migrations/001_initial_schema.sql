@@ -134,3 +134,46 @@ INSERT INTO menu_items (name, description, price, image_url, category, available
   ('Café solo', 'Café espresso', 1.30, 'https://images.unsplash.com/photo-1510591509098-f4fdc6d0ff04?w=400', 'Cafés', true),
   ('Café con leche', 'Café con leche cremoso', 1.60, 'https://images.unsplash.com/photo-1461023058943-07fcbe16d735?w=400', 'Cafés', true),
   ('Cortado', 'Café cortado con un toque de leche', 1.40, 'https://images.unsplash.com/photo-1514432324607-a09d9b4aefda?w=400', 'Cafés', true);
+
+-- =============================================
+-- Tabla: profiles (Perfiles de usuario)
+-- =============================================
+
+CREATE TABLE IF NOT EXISTS profiles (
+  id UUID PRIMARY KEY REFERENCES auth.users(id) ON DELETE CASCADE,
+  name TEXT,
+  email TEXT,
+  role TEXT NOT NULL DEFAULT 'client' CHECK (role IN ('client', 'waiter')),
+  created_at TIMESTAMPTZ DEFAULT now()
+);
+
+ALTER TABLE profiles ENABLE ROW LEVEL SECURITY;
+
+CREATE POLICY "Perfiles visibles para usuarios autenticados"
+  ON profiles FOR SELECT
+  USING (auth.role() = 'authenticated');
+
+CREATE POLICY "Usuarios actualizan su propio perfil"
+  ON profiles FOR UPDATE
+  USING (auth.uid() = id);
+
+-- Función que copia los datos automáticamente al registrarse
+CREATE OR REPLACE FUNCTION public.handle_new_user()
+RETURNS TRIGGER AS $$
+BEGIN
+  INSERT INTO public.profiles (id, name, email, role)
+  VALUES (
+    NEW.id,
+    NEW.raw_user_meta_data ->> 'name',
+    NEW.email,
+    COALESCE(NEW.raw_user_meta_data ->> 'role', 'client')
+  );
+  RETURN NEW;
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER;
+
+-- Trigger: se ejecuta cada vez que se registra alguien
+CREATE OR REPLACE TRIGGER on_auth_user_created
+  AFTER INSERT ON auth.users
+  FOR EACH ROW
+  EXECUTE FUNCTION public.handle_new_user();

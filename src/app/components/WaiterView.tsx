@@ -55,6 +55,7 @@ function OrderList({ profile, onLogout }: Props) {
   const [filter, setFilter] = useState<FilterStatus>('all')
   const [selectedOrder, setSelectedOrder] = useState<Order | null>(null)
   const [showScanner, setShowScanner] = useState(false)
+  const [scanError, setScanError] = useState('')
 
   const fetchOrders = useCallback(async () => {
     const query = supabase
@@ -96,6 +97,7 @@ function OrderList({ profile, onLogout }: Props) {
   }
 
   const handleQRScan = async (data: string) => {
+    setScanError('')
     // Código manual: buscar pedido por pickup_code
     if (data.startsWith('MANUAL:')) {
       const code = data.replace('MANUAL:', '')
@@ -106,6 +108,8 @@ function OrderList({ profile, onLogout }: Props) {
         await updateOrderStatus(order.id, 'completed')
         setShowScanner(false)
         fetchOrders()
+      } else {
+        setScanError('Código incorrecto o el pedido no está listo.')
       }
       return
     }
@@ -117,9 +121,11 @@ function OrderList({ profile, onLogout }: Props) {
         await updateOrderStatus(parsed.orderId, 'completed')
         setShowScanner(false)
         fetchOrders()
+      } else {
+        setScanError('QR inválido.')
       }
     } catch {
-      // QR inválido
+      setScanError('QR inválido.')
     }
   }
 
@@ -136,7 +142,7 @@ function OrderList({ profile, onLogout }: Props) {
   }
 
   if (showScanner) {
-    return <QRScanner onScan={handleQRScan} onClose={() => setShowScanner(false)} />
+    return <QRScanner onScan={handleQRScan} onClose={() => setShowScanner(false)} externalError={scanError} />
   }
 
   if (selectedOrder) {
