@@ -2,7 +2,7 @@ import { useState, useEffect, useCallback } from 'react'
 import { supabase } from '../utils/supabase'
 import { Clock, ChefHat, CheckCircle, Package, QrCode } from 'lucide-react'
 import QRCode from 'qrcode'
-import type { Order, OrderItem } from '../types'
+import type { Order } from '../types'
 
 interface Props {
   userId: string
@@ -33,7 +33,6 @@ const STATUS_CONFIG = {
 
 export default function OrderHistory({ userId }: Props) {
   const [orders, setOrders] = useState<Order[]>([])
-  const [orderItems, setOrderItems] = useState<Record<string, OrderItem[]>>({})
   const [loading, setLoading] = useState(true)
   const [qrImages, setQrImages] = useState<Record<string, string>>({})
   const [expandedOrder, setExpandedOrder] = useState<string | null>(null)
@@ -41,7 +40,7 @@ export default function OrderHistory({ userId }: Props) {
   const fetchOrders = useCallback(async () => {
     const { data, error } = await supabase
       .from('orders')
-      .select('*')
+      .select('*, items:order_items(*, menu_item:menu_items(*), ingredient:drink_ingredients(*))')
       .eq('user_id', userId)
       .order('created_at', { ascending: false })
 
@@ -70,20 +69,7 @@ export default function OrderHistory({ userId }: Props) {
     return () => clearInterval(interval)
   }, [fetchOrders])
 
-  const fetchOrderItems = async (orderId: string) => {
-    if (orderItems[orderId]) {
-      setExpandedOrder(expandedOrder === orderId ? null : orderId)
-      return
-    }
-
-    const { data, error } = await supabase
-      .from('order_items')
-      .select('*, menu_item:menu_items(*)')
-      .eq('order_id', orderId)
-
-    if (!error && data) {
-      setOrderItems((prev) => ({ ...prev, [orderId]: data }))
-    }
+  const toggleOrder = (orderId: string) => {
     setExpandedOrder(expandedOrder === orderId ? null : orderId)
   }
 
@@ -109,7 +95,7 @@ export default function OrderHistory({ userId }: Props) {
 
   return (
     <div>
-      <h2 className="text-2xl font-bold text-gray-800 mb-4">📜 Mis Pedidos</h2>
+      <h2 className="text-3xl font-bold text-gray-800 mb-6 text-center">📜 Mis Pedidos</h2>
 
       <div className="space-y-4">
         {orders.map((order) => {
@@ -122,7 +108,7 @@ export default function OrderHistory({ userId }: Props) {
               className="bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden"
             >
               <button
-                onClick={() => fetchOrderItems(order.id)}
+                onClick={() => toggleOrder(order.id)}
                 className="w-full p-4 text-left"
               >
                 <div className="flex items-center justify-between mb-2">
@@ -152,27 +138,43 @@ export default function OrderHistory({ userId }: Props) {
               {/* Detalles expandidos */}
               {expandedOrder === order.id && (
                 <div className="border-t border-gray-100 p-4">
-                  {orderItems[order.id] ? (
+                  {order.items && order.items.length > 0 ? (
                     <div className="space-y-2">
-                      {orderItems[order.id].map((item) => (
-                        <div
-                          key={item.id}
-                          className="flex justify-between text-sm"
-                        >
-                          <span className="text-gray-600">
-                            {item.quantity}x{' '}
-                            {item.menu_item?.name || 'Producto'}
-                          </span>
-                          <span className="text-gray-800 font-medium">
-                            {(item.price * item.quantity).toFixed(2)}€
-                          </span>
-                        </div>
-                      ))}
+                      {(() => {
+                        const menuItems = order.items!.filter((i) => i.menu_item_id)
+                        const ingredientItems = order.items!.filter((i) => i.ingredient_id)
+                        return (
+                          <>
+                            {menuItems.map((item) => (
+                              <div
+                                key={item.id}
+                                className="flex justify-between text-sm"
+                              >
+                                <span className="text-gray-600">
+                                  {item.quantity}x{' '}
+                                  {item.menu_item?.name || 'Producto'}
+                                </span>
+                                <span className="text-gray-800 font-medium">
+                                  {(item.price * item.quantity).toFixed(2)}€
+                                </span>
+                              </div>
+                            ))}
+                            {ingredientItems.length > 0 && (
+                              <div className="flex justify-between text-sm">
+                                <span className="text-gray-600">
+                                  🧪 {ingredientItems.map((i) => i.ingredient?.name || 'Ingrediente').join(' + ')}
+                                </span>
+                                <span className="text-gray-800 font-medium">
+                                  {ingredientItems.reduce((sum, i) => sum + i.price * i.quantity, 0).toFixed(2)}€
+                                </span>
+                              </div>
+                            )}
+                          </>
+                        )
+                      })()}
                     </div>
                   ) : (
-                    <div className="flex justify-center py-2">
-                      <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-primary-600"></div>
-                    </div>
+                    <p className="text-sm text-gray-400 text-center">Sin productos</p>
                   )}
 
                   {/* QR para pedidos listos */}

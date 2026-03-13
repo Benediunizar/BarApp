@@ -1,10 +1,11 @@
 import { useState, useEffect } from 'react'
 import { supabase } from '../utils/supabase'
-import { Search, Plus, Tag, X } from 'lucide-react'
-import type { MenuItem } from '../types'
+import { Search, Plus, Tag, X, FlaskConical } from 'lucide-react'
+import CustomDrinkBuilder from './CustomDrinkBuilder'
+import type { MenuItem, DrinkIngredient } from '../types'
 
 interface Props {
-  onAddToCart: (item: MenuItem) => void
+  onAddToCart: (item: MenuItem, ingredients?: { ingredient: DrinkIngredient; quantity: number }[]) => void
 }
 
 export default function Menu({ onAddToCart }: Props) {
@@ -14,6 +15,7 @@ export default function Menu({ onAddToCart }: Props) {
   const [loading, setLoading] = useState(true)
   const [addedId, setAddedId] = useState<string | null>(null)
   const [previewItem, setPreviewItem] = useState<MenuItem | null>(null)
+  const [showCustomDrink, setShowCustomDrink] = useState(false)
 
   useEffect(() => {
     fetchMenu()
@@ -60,7 +62,7 @@ export default function Menu({ onAddToCart }: Props) {
 
   return (
     <div>
-      <h2 className="text-2xl font-bold text-gray-800 mb-4">📖 Carta</h2>
+      <h2 className="text-3xl font-bold text-gray-800 mb-6 text-center">BEBIDAS</h2>
 
       {/* Buscador */}
       <div className="relative mb-4">
@@ -98,7 +100,16 @@ export default function Menu({ onAddToCart }: Props) {
           <p className="text-lg">No se encontraron productos</p>
         </div>
       ) : (
-        <div className="grid gap-4 sm:grid-cols-2">
+        <div className="grid gap-4 grid-cols-1 sm:grid-cols-2 lg:grid-cols-3">
+          {/* Tarjeta de bebida personalizada */}
+          <div
+            onClick={() => setShowCustomDrink(true)}
+            className="bg-gradient-to-br from-primary-500 to-primary-700 rounded-2xl shadow-md border border-primary-400 overflow-hidden hover:shadow-xl hover:scale-105 transition-all duration-300 ease-in-out cursor-pointer flex flex-col items-center justify-center p-6 text-white min-h-[180px]"
+          >
+            <FlaskConical className="w-12 h-12 mb-3 opacity-90" />
+            <h3 className="text-lg font-bold">Bebida Personalizada</h3>
+            <p className="text-sm text-white/80 mt-1 text-center">Elige tu alcohol y refresco favorito</p>
+          </div>
           {filteredItems.map((item) => (
             <div
               key={item.id}
@@ -142,6 +153,14 @@ export default function Menu({ onAddToCart }: Props) {
             </div>
           ))}
         </div>
+      )}
+
+      {/* Modal de bebida personalizada */}
+      {showCustomDrink && (
+        <CustomDrinkBuilder
+          onAddToCart={onAddToCart}
+          onClose={() => setShowCustomDrink(false)}
+        />
       )}
 
       {/* Modal de preview */}

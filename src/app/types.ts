@@ -8,9 +8,20 @@ export interface MenuItem {
   available: boolean
 }
 
+export interface DrinkIngredient {
+  id: string
+  name: string
+  type: 'alcohol' | 'mixer'
+  price: number
+  image_url: string
+  available: boolean
+}
+
 export interface CartItem {
   menuItem: MenuItem
   quantity: number
+  withIce?: boolean
+  ingredients?: { ingredient: DrinkIngredient; quantity: number }[]
 }
 
 export interface Order {
@@ -27,10 +38,13 @@ export interface Order {
 export interface OrderItem {
   id: string
   order_id: string
-  menu_item_id: string
+  menu_item_id?: string
+  ingredient_id?: string
   quantity: number
   price: number
+  notes?: string
   menu_item?: MenuItem
+  ingredient?: DrinkIngredient
 }
 
 export interface UserProfile {

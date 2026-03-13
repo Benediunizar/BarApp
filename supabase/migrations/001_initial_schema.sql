@@ -136,6 +136,47 @@ INSERT INTO menu_items (name, description, price, image_url, category, available
   ('Cortado', 'Café cortado con un toque de leche', 1.40, 'https://images.unsplash.com/photo-1514432324607-a09d9b4aefda?w=400', 'Cafés', true);
 
 -- =============================================
+-- Tabla: drink_ingredients (Ingredientes para bebida personalizada)
+-- =============================================
+
+CREATE TABLE IF NOT EXISTS drink_ingredients (
+  id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
+  name TEXT NOT NULL,
+  type TEXT NOT NULL CHECK (type IN ('alcohol', 'mixer')),
+  price NUMERIC(10,2) NOT NULL CHECK (price >= 0),
+  image_url TEXT DEFAULT '',
+  available BOOLEAN NOT NULL DEFAULT true,
+  created_at TIMESTAMPTZ DEFAULT now()
+);
+
+CREATE INDEX IF NOT EXISTS idx_drink_ingredients_type ON drink_ingredients(type);
+CREATE INDEX IF NOT EXISTS idx_drink_ingredients_available ON drink_ingredients(available);
+
+ALTER TABLE drink_ingredients ENABLE ROW LEVEL SECURITY;
+CREATE POLICY "Ingredientes públicos" ON drink_ingredients FOR SELECT USING (true);
+
+-- Modificar order_items para soportar ingredientes
+ALTER TABLE order_items ALTER COLUMN menu_item_id DROP NOT NULL;
+ALTER TABLE order_items ADD COLUMN ingredient_id UUID REFERENCES drink_ingredients(id);
+ALTER TABLE order_items ADD COLUMN notes TEXT;
+ALTER TABLE order_items ADD CONSTRAINT item_or_ingredient
+  CHECK (menu_item_id IS NOT NULL OR ingredient_id IS NOT NULL);
+
+-- Datos de ejemplo para ingredientes
+INSERT INTO drink_ingredients (name, type, price) VALUES
+  ('Vodka', 'alcohol', 3.00),
+  ('Ron', 'alcohol', 3.00),
+  ('Ginebra', 'alcohol', 3.50),
+  ('Whisky', 'alcohol', 4.00),
+  ('Tequila', 'alcohol', 3.50),
+  ('Coca-Cola', 'mixer', 1.50),
+  ('Fanta Naranja', 'mixer', 1.50),
+  ('Tónica', 'mixer', 1.50),
+  ('Sprite', 'mixer', 1.50),
+  ('Zumo de naranja', 'mixer', 1.50),
+  ('Red Bull', 'mixer', 2.50);
+
+-- =============================================
 -- Tabla: profiles (Perfiles de usuario)
 -- =============================================
 

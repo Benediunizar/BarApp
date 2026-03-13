@@ -62,7 +62,7 @@ export default function OrderDetails({ order, onBack, onUpdateStatus, onOpenScan
   const fetchItems = async () => {
     const { data, error } = await supabase
       .from('order_items')
-      .select('*, menu_item:menu_items(*)')
+      .select('*, menu_item:menu_items(*), ingredient:drink_ingredients(*)')
       .eq('order_id', order.id)
 
     if (!error && data) {
@@ -191,33 +191,65 @@ export default function OrderDetails({ order, onBack, onUpdateStatus, onOpenScan
             </div>
           ) : (
             <div className="space-y-3">
-              {items.map((item) => (
-                <div
-                  key={item.id}
-                  className="flex items-center justify-between py-2 border-b border-gray-50 last:border-0"
-                >
-                  <div className="flex items-center gap-3">
-                    {item.menu_item?.image_url && (
-                      <img
-                        src={item.menu_item.image_url}
-                        alt={item.menu_item?.name}
-                        className="w-12 h-12 rounded-lg object-cover"
-                      />
+              {(() => {
+                const menuItems = items.filter((i) => i.menu_item_id)
+                const ingredientItems = items.filter((i) => i.ingredient_id)
+                return (
+                  <>
+                    {menuItems.map((item) => {
+                      const name = item.menu_item?.name || 'Producto'
+                      const imageUrl = item.menu_item?.image_url
+                      return (
+                        <div
+                          key={item.id}
+                          className="flex items-center justify-between py-2 border-b border-gray-50 last:border-0"
+                        >
+                          <div className="flex items-center gap-3">
+                            {imageUrl && (
+                              <img
+                                src={imageUrl}
+                                alt={name}
+                                className="w-12 h-12 rounded-lg object-cover"
+                              />
+                            )}
+                            <div>
+                              <p className="font-medium text-gray-800">{name}</p>
+                              <p className="text-sm text-gray-400">
+                                {item.quantity} x {item.price.toFixed(2)}€
+                              </p>
+                              {item.notes && (
+                                <p className="text-xs text-blue-500 flex items-center gap-1 mt-0.5">
+                                  ❄️ {item.notes}
+                                </p>
+                              )}
+                            </div>
+                          </div>
+                          <span className="font-semibold text-gray-800">
+                            {(item.quantity * item.price).toFixed(2)}€
+                          </span>
+                        </div>
+                      )
+                    })}
+                    {ingredientItems.length > 0 && (
+                      <div className="py-2 border-b border-gray-50 last:border-0">
+                        <div className="flex items-center justify-between">
+                          <div>
+                            <p className="font-medium text-gray-800">
+                              🧪 {ingredientItems.map((i) => i.ingredient?.name || 'Ingrediente').join(' + ')}
+                            </p>
+                            <p className="text-sm text-gray-400">
+                              Bebida personalizada
+                            </p>
+                          </div>
+                          <span className="font-semibold text-gray-800">
+                            {ingredientItems.reduce((sum, i) => sum + i.price * i.quantity, 0).toFixed(2)}€
+                          </span>
+                        </div>
+                      </div>
                     )}
-                    <div>
-                      <p className="font-medium text-gray-800">
-                        {item.menu_item?.name || 'Producto'}
-                      </p>
-                      <p className="text-sm text-gray-400">
-                        {item.quantity} x {item.price.toFixed(2)}€
-                      </p>
-                    </div>
-                  </div>
-                  <span className="font-semibold text-gray-800">
-                    {(item.quantity * item.price).toFixed(2)}€
-                  </span>
-                </div>
-              ))}
+                  </>
+                )
+              })()}
 
               <div className="flex justify-between items-center pt-3 border-t border-gray-200">
                 <span className="font-bold text-gray-800">Total</span>

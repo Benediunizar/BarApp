@@ -1,21 +1,24 @@
 import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { supabase } from '../utils/supabase'
-import { Trash2, Minus, Plus, ShoppingBag, ArrowLeft } from 'lucide-react'
-import type { CartItem } from '../types'
+import { Trash2, Minus, Plus, ShoppingBag, ArrowLeft, X, CreditCard, Snowflake } from 'lucide-react'
+import type { CartItem, MenuItem } from '../types'
 
 interface Props {
   items: CartItem[]
   onUpdateQuantity: (menuItemId: string, quantity: number) => void
+  onToggleIce: (menuItemId: string) => void
   onClearCart: () => void
   userId: string
   userName: string
 }
 
-export default function Cart({ items, onUpdateQuantity, onClearCart, userId, userName }: Props) {
+export default function Cart({ items, onUpdateQuantity, onToggleIce, onClearCart, userId, userName }: Props) {
   const navigate = useNavigate()
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
+  const [previewItem, setPreviewItem] = useState<MenuItem | null>(null)
+  const [showPayment, setShowPayment] = useState(false)
 
   const total = items.reduce(
     (sum, item) => sum + item.menuItem.price * item.quantity,
@@ -50,12 +53,27 @@ export default function Cart({ items, onUpdateQuantity, onClearCart, userId, use
     }
 
     // Crear items del pedido
-    const orderItems = items.map((item) => ({
-      order_id: order.id,
-      menu_item_id: item.menuItem.id,
-      quantity: item.quantity,
-      price: item.menuItem.price,
-    }))
+    const orderItems: { order_id: string; menu_item_id?: string; ingredient_id?: string; quantity: number; price: number; notes?: string }[] = []
+    for (const item of items) {
+      if (item.ingredients && item.ingredients.length > 0) {
+        for (const ing of item.ingredients) {
+          orderItems.push({
+            order_id: order.id,
+            ingredient_id: ing.ingredient.id,
+            quantity: ing.quantity * item.quantity,
+            price: ing.ingredient.price,
+          })
+        }
+      } else {
+        orderItems.push({
+          order_id: order.id,
+          menu_item_id: item.menuItem.id,
+          quantity: item.quantity,
+          price: item.menuItem.price,
+          ...(item.withIce === false ? { notes: 'Sin hielo' } : {}),
+        })
+      }
+    }
 
     const { error: itemsError } = await supabase
       .from('order_items')
@@ -103,8 +121,9 @@ export default function Cart({ items, onUpdateQuantity, onClearCart, userId, use
         {items.map((item) => (
           <div
             key={item.menuItem.id}
-            className="bg-white rounded-xl p-4 shadow-sm border border-gray-100 flex items-center gap-4"
+            className="bg-white rounded-xl p-4 shadow-sm border border-gray-100 hover:shadow-md transition"
           >
+            <div className="flex items-center gap-4 cursor-pointer" onClick={() => setPreviewItem(item.menuItem)}>
             {item.menuItem.image_url && (
               <img
                 src={item.menuItem.image_url}
@@ -121,7 +140,7 @@ export default function Cart({ items, onUpdateQuantity, onClearCart, userId, use
               </p>
             </div>
 
-            <div className="flex items-center gap-2">
+            <div className="flex items-center gap-2" onClick={(e) => e.stopPropagation()}>
               <button
                 onClick={() =>
                   onUpdateQuantity(item.menuItem.id, item.quantity - 1)
@@ -148,6 +167,24 @@ export default function Cart({ items, onUpdateQuantity, onClearCart, userId, use
             <span className="font-bold text-gray-800 w-16 text-right">
               {(item.menuItem.price * item.quantity).toFixed(2)}€
             </span>
+            </div>
+
+            {/* Toggle hielo */}
+            {!item.ingredients && (
+              <div className="mt-2 pt-2 border-t border-gray-100" onClick={(e) => e.stopPropagation()}>
+                <button
+                  onClick={() => onToggleIce(item.menuItem.id)}
+                  className={`flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-semibold transition shadow-sm border ${
+                    item.withIce !== false
+                      ? 'bg-blue-100 text-blue-700 border-blue-300 hover:bg-blue-200'
+                      : 'bg-gray-50 text-gray-400 border-gray-200 hover:bg-gray-100'
+                  }`}
+                >
+                  <Snowflake className="w-4 h-4" />
+                  {item.withIce !== false ? 'Con hielo' : 'Sin hielo'}
+                </button>
+              </div>
+            )}
           </div>
         ))}
       </div>
@@ -164,18 +201,11 @@ export default function Cart({ items, onUpdateQuantity, onClearCart, userId, use
         </div>
 
         <button
-          onClick={handleOrder}
-          disabled={loading}
-          className="w-full bg-primary-600 hover:bg-primary-700 text-white font-medium py-3.5 rounded-xl transition flex items-center justify-center gap-2 disabled:opacity-50"
+          onClick={() => setShowPayment(true)}
+          className="w-full bg-primary-600 hover:bg-primary-700 text-white font-medium py-3.5 rounded-xl transition flex items-center justify-center gap-2"
         >
-          {loading ? (
-            <div className="animate-spin rounded-full h-5 w-5 border-b-2 border-white"></div>
-          ) : (
-            <>
-              <ShoppingBag className="w-5 h-5" />
-              Confirmar Pedido
-            </>
-          )}
+          <ShoppingBag className="w-5 h-5" />
+          Confirmar Pedido
         </button>
 
         <button
@@ -186,6 +216,137 @@ export default function Cart({ items, onUpdateQuantity, onClearCart, userId, use
           Vaciar carrito
         </button>
       </div>
+
+      {/* Modal de pago */}
+      {showPayment && (
+        <div
+          className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center p-4 animate-fade-in"
+          onClick={() => !loading && setShowPayment(false)}
+        >
+          <div
+            className="bg-white rounded-2xl shadow-2xl max-w-md w-full overflow-hidden animate-scale-in"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="p-6">
+              {/* Header */}
+              <div className="flex items-center justify-between mb-5">
+                <h3 className="text-xl font-bold text-gray-800 flex items-center gap-2">
+                  <CreditCard className="w-6 h-6 text-primary-600" />
+                  Confirmar pago
+                </h3>
+                <button
+                  onClick={() => !loading && setShowPayment(false)}
+                  className="text-gray-400 hover:text-gray-600 transition"
+                >
+                  <X className="w-5 h-5" />
+                </button>
+              </div>
+
+              {/* Lista de productos */}
+              <div className="space-y-3 mb-5 max-h-60 overflow-y-auto">
+                {items.map((item) => (
+                  <div key={item.menuItem.id} className="flex items-center justify-between text-sm">
+                    <div className="flex items-center gap-3 flex-1 min-w-0">
+                      {item.menuItem.image_url && (
+                        <img
+                          src={item.menuItem.image_url}
+                          alt={item.menuItem.name}
+                          className="w-10 h-10 rounded-lg object-cover"
+                        />
+                      )}
+                      <div className="min-w-0">
+                        <p className="font-medium text-gray-800 truncate">{item.menuItem.name}</p>
+                        <p className="text-gray-400">{item.quantity} x {item.menuItem.price.toFixed(2)}€</p>
+                      </div>
+                    </div>
+                    <span className="font-semibold text-gray-800 ml-3">
+                      {(item.menuItem.price * item.quantity).toFixed(2)}€
+                    </span>
+                  </div>
+                ))}
+              </div>
+
+              {/* Separador y total */}
+              <div className="border-t border-gray-200 pt-4 mb-5">
+                <div className="flex justify-between items-center">
+                  <span className="text-lg font-semibold text-gray-800">Total</span>
+                  <span className="text-2xl font-bold text-primary-600">{total.toFixed(2)}€</span>
+                </div>
+              </div>
+
+              {error && (
+                <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-xl mb-4 text-sm">
+                  {error}
+                </div>
+              )}
+
+              {/* Botones */}
+              <button
+                onClick={handleOrder}
+                disabled={loading}
+                className="w-full bg-green-600 hover:bg-green-700 text-white font-medium py-3.5 rounded-xl transition flex items-center justify-center gap-2 disabled:opacity-50"
+              >
+                {loading ? (
+                  <div className="animate-spin rounded-full h-5 w-5 border-b-2 border-white"></div>
+                ) : (
+                  <>
+                    <CreditCard className="w-5 h-5" />
+                    Pagar {total.toFixed(2)}€
+                  </>
+                )}
+              </button>
+              <button
+                onClick={() => setShowPayment(false)}
+                disabled={loading}
+                className="w-full mt-2 text-gray-500 hover:bg-gray-50 font-medium py-2.5 rounded-xl transition disabled:opacity-50"
+              >
+                Cancelar
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Modal de preview */}
+      {previewItem && (
+        <div
+          className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center p-4 animate-fade-in"
+          onClick={() => setPreviewItem(null)}
+        >
+          <div
+            className="bg-white rounded-2xl shadow-2xl max-w-md w-full overflow-hidden animate-scale-in"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="relative">
+              <button
+                onClick={() => setPreviewItem(null)}
+                className="absolute top-3 right-3 z-10 bg-black/40 hover:bg-black/60 text-white rounded-full p-1.5 transition"
+              >
+                <X className="w-5 h-5" />
+              </button>
+              {previewItem.image_url && (
+                <img
+                  src={previewItem.image_url}
+                  alt={previewItem.name}
+                  className="w-full max-h-80 object-contain bg-gray-100"
+                />
+              )}
+            </div>
+            <div className="p-5">
+              <div className="flex items-start justify-between gap-3 mb-2">
+                <h3 className="text-xl font-bold text-gray-800">{previewItem.name}</h3>
+                <span className="text-xl font-bold text-primary-600 whitespace-nowrap">
+                  {previewItem.price.toFixed(2)}€
+                </span>
+              </div>
+              <span className="inline-block text-xs font-medium text-primary-600 bg-primary-50 px-2.5 py-1 rounded-full mb-3">
+                {previewItem.category}
+              </span>
+              <p className="text-gray-500">{previewItem.description}</p>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }
