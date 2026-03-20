@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react'
-import { X, Wine, GlassWater, Plus, Minus, FlaskConical, Snowflake } from 'lucide-react'
+import { X, Wine, GlassWater, Plus, FlaskConical, Snowflake } from 'lucide-react'
 import { supabase } from '../utils/supabase'
 import type { DrinkIngredient, MenuItem } from '../types'
 
@@ -13,16 +13,14 @@ interface Props {
   onClose: () => void
 }
 
-interface SelectedItem {
-  ingredient: DrinkIngredient
-  quantity: number
-}
+type DrinkStyle = 'solo' | 'mixer' | null
 
 export default function CustomDrinkBuilder({ onAddToCart, onClose }: Props) {
   const [tab, setTab] = useState<'alcohol' | 'mixer'>('alcohol')
   const [ingredients, setIngredients] = useState<DrinkIngredient[]>([])
-  const [selectedAlcohols, setSelectedAlcohols] = useState<SelectedItem[]>([])
-  const [selectedMixers, setSelectedMixers] = useState<SelectedItem[]>([])
+  const [selectedAlcohol, setSelectedAlcohol] = useState<DrinkIngredient | null>(null)
+  const [drinkStyle, setDrinkStyle] = useState<DrinkStyle>(null)
+  const [selectedMixers, setSelectedMixers] = useState<DrinkIngredient[]>([])
   const [withIce, setWithIce] = useState(true)
   const [loading, setLoading] = useState(true)
 
@@ -42,45 +40,28 @@ export default function CustomDrinkBuilder({ onAddToCart, onClose }: Props) {
   const alcoholItems = ingredients.filter((i) => i.type === 'alcohol')
   const mixerItems = ingredients.filter((i) => i.type === 'mixer')
 
-  const toggleItem = (
-    ingredient: DrinkIngredient,
-    list: SelectedItem[],
-    setList: React.Dispatch<React.SetStateAction<SelectedItem[]>>
-  ) => {
-    const existing = list.find((s) => s.ingredient.id === ingredient.id)
-    if (existing) {
-      setList(list.filter((s) => s.ingredient.id !== ingredient.id))
-    } else {
-      setList([...list, { ingredient, quantity: 1 }])
-    }
-  }
+  const alcoholLocked = !!selectedAlcohol
 
-  const updateItemQty = (
-    ingredientId: string,
-    delta: number,
-    list: SelectedItem[],
-    setList: React.Dispatch<React.SetStateAction<SelectedItem[]>>
-  ) => {
-    setList(
-      list.flatMap((s) => {
-        if (s.ingredient.id === ingredientId) {
-          const newQty = s.quantity + delta
-          return newQty <= 0 ? [] : [{ ...s, quantity: newQty }]
-        }
-        return [s]
-      })
-    )
-  }
+  const totalPrice =
+    (selectedAlcohol?.price || 0) +
+    (drinkStyle === 'mixer'
+      ? selectedMixers.reduce((sum, m) => sum + (m.price || 0), 0)
+      : 0)
 
-  const totalPrice = [...selectedAlcohols, ...selectedMixers].reduce(
-    (sum, s) => sum + s.ingredient.price * s.quantity,
-    0
-  )
-
-  const totalItems = selectedAlcohols.length + selectedMixers.length
+  const totalItems = (selectedAlcohol ? 1 : 0) +
+    (drinkStyle === 'mixer' ? selectedMixers.length : 0)
 
   const handleConfirm = () => {
-    const allSelected = [...selectedAlcohols, ...selectedMixers]
+    if (!selectedAlcohol || drinkStyle === null) return
+    if (drinkStyle === 'mixer' && selectedMixers.length === 0) return
+
+    const allSelected: IngredientSelection[] = [
+      { ingredient: selectedAlcohol, quantity: 1 },
+      ...(drinkStyle === 'mixer'
+        ? selectedMixers.map((m) => ({ ingredient: m, quantity: 1 }))
+        : []),
+    ]
+
     const names = allSelected.map((s) => s.ingredient.name).join(' + ')
     const iceSuffix = withIce ? '' : ' (sin hielo)'
 
@@ -98,29 +79,93 @@ export default function CustomDrinkBuilder({ onAddToCart, onClose }: Props) {
     onClose()
   }
 
-  const renderItemList = (
-    items: DrinkIngredient[],
-    selected: SelectedItem[],
-    setSelected: React.Dispatch<React.SetStateAction<SelectedItem[]>>
-  ) => (
+  const renderAlcoholList = () => (
     <div className="grid gap-3 grid-cols-1 sm:grid-cols-2">
-      {items.length === 0 ? (
+      {alcoholItems.length === 0 ? (
         <p className="text-gray-400 text-center col-span-full py-8">
           No hay productos en esta categoría
         </p>
       ) : (
-        items.map((ingredient) => {
-          const sel = selected.find((s) => s.ingredient.id === ingredient.id)
-          const active = !!sel
+        alcoholItems.map((ingredient) => {
+          const active = selectedAlcohol?.id === ingredient.id
+          const disabled = alcoholLocked && !active
+          return (
+            <div
+              key={ingredient.id}
+              className={`rounded-xl border-2 p-3 transition-all ${
+                disabled ? 'opacity-50 cursor-not-allowed bg-gray-50 border-gray-200' : 'cursor-pointer'
+              } ${
+                active
+                  ? 'border-emerald-500 bg-emerald-50 shadow-md'
+                  : 'border-gray-200 bg-white hover:border-gray-300'
+              }`}
+              onClick={() => {
+                if (disabled) return
+                if (active && alcoholLocked) {
+                  // Desbloquear (por si se equivoca)
+                  setSelectedAlcohol(null)
+                  setDrinkStyle(null)
+                  setSelectedMixers([])
+                  return
+                }
+                setSelectedAlcohol(ingredient)
+                setDrinkStyle(null)
+                setSelectedMixers([])
+                setTab('alcohol')
+              }}
+            >
+              <div className="flex items-center gap-3">
+                {ingredient.image_url && (
+                  <img
+                    src={ingredient.image_url}
+                    alt={ingredient.name}
+                    className="w-12 h-12 rounded-lg object-cover flex-shrink-0"
+                  />
+                )}
+                <div className="flex-1 min-w-0">
+                  <h4 className="font-semibold text-gray-800 text-sm truncate">
+                    {ingredient.name}
+                  </h4>
+                  {active && drinkStyle !== null && (
+                    <p className="text-xs text-emerald-700 mt-0.5">Alcohol seleccionado</p>
+                  )}
+                </div>
+                <span className={`font-bold text-sm whitespace-nowrap ${active ? 'text-emerald-700' : 'text-primary-600'}`}>
+                  {ingredient.price.toFixed(2)}€
+                </span>
+              </div>
+            </div>
+          )
+        })
+      )}
+    </div>
+  )
+
+  const renderMixerList = () => (
+    <div className="grid gap-3 grid-cols-1 sm:grid-cols-2">
+      {mixerItems.length === 0 ? (
+        <p className="text-gray-400 text-center col-span-full py-8">
+          No hay productos en esta categoría
+        </p>
+      ) : (
+        mixerItems.map((ingredient) => {
+          const active = selectedMixers.some((m) => m.id === ingredient.id)
           return (
             <div
               key={ingredient.id}
               className={`rounded-xl border-2 p-3 transition-all cursor-pointer ${
                 active
-                  ? 'border-primary-500 bg-primary-50 shadow-md'
+                  ? 'border-emerald-500 bg-emerald-50 shadow-md'
                   : 'border-gray-200 bg-white hover:border-gray-300'
               }`}
-              onClick={() => toggleItem(ingredient, selected, setSelected)}
+              onClick={() => {
+                if (drinkStyle !== 'mixer') return
+                setSelectedMixers((prev) => {
+                  const exists = prev.some((m) => m.id === ingredient.id)
+                  if (exists) return prev.filter((m) => m.id !== ingredient.id)
+                  return [...prev, ingredient]
+                })
+              }}
             >
               <div className="flex items-center gap-3">
                 {ingredient.image_url && (
@@ -135,36 +180,10 @@ export default function CustomDrinkBuilder({ onAddToCart, onClose }: Props) {
                     {ingredient.name}
                   </h4>
                 </div>
-                <span className="font-bold text-primary-600 text-sm whitespace-nowrap">
+                <span className={`font-bold text-sm whitespace-nowrap ${active ? 'text-emerald-700' : 'text-primary-600'}`}>
                   {ingredient.price.toFixed(2)}€
                 </span>
               </div>
-              {active && sel && (
-                <div
-                  className="flex items-center justify-center gap-3 mt-2 pt-2 border-t border-primary-200"
-                  onClick={(e) => e.stopPropagation()}
-                >
-                  <button
-                    onClick={() =>
-                      updateItemQty(ingredient.id, -1, selected, setSelected)
-                    }
-                    className="w-7 h-7 rounded-full bg-primary-100 text-primary-700 flex items-center justify-center hover:bg-primary-200 transition"
-                  >
-                    <Minus className="w-3.5 h-3.5" />
-                  </button>
-                  <span className="font-bold text-primary-700 text-sm w-6 text-center">
-                    {sel.quantity}
-                  </span>
-                  <button
-                    onClick={() =>
-                      updateItemQty(ingredient.id, 1, selected, setSelected)
-                    }
-                    className="w-7 h-7 rounded-full bg-primary-100 text-primary-700 flex items-center justify-center hover:bg-primary-200 transition"
-                  >
-                    <Plus className="w-3.5 h-3.5" />
-                  </button>
-                </div>
-              )}
             </div>
           )
         })
@@ -209,18 +228,21 @@ export default function CustomDrinkBuilder({ onAddToCart, onClose }: Props) {
           >
             <Wine className="w-4 h-4" />
             Alcohol
-            {selectedAlcohols.length > 0 && (
+            {selectedAlcohol && (
               <span className="bg-primary-600 text-white text-xs w-5 h-5 rounded-full flex items-center justify-center">
-                {selectedAlcohols.length}
+                1
               </span>
             )}
           </button>
           <button
-            onClick={() => setTab('mixer')}
-            className={`flex-1 flex items-center justify-center gap-2 py-3 text-sm font-medium transition border-b-2 ${
+            onClick={() => {
+              if (selectedAlcohol && drinkStyle === 'mixer') setTab('mixer')
+            }}
+            disabled={!selectedAlcohol || drinkStyle !== 'mixer'}
+            className={`flex-1 flex items-center justify-center gap-2 py-3 text-sm font-medium transition border-b-2 disabled:opacity-50 disabled:cursor-not-allowed ${
               tab === 'mixer'
                 ? 'border-primary-600 text-primary-600'
-                : 'border-transparent text-gray-400 hover:text-gray-600'
+                : 'border-transparent text-gray-400'
             }`}
           >
             <GlassWater className="w-4 h-4" />
@@ -240,9 +262,70 @@ export default function CustomDrinkBuilder({ onAddToCart, onClose }: Props) {
               <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary-600"></div>
             </div>
           ) : tab === 'alcohol' ? (
-            renderItemList(alcoholItems, selectedAlcohols, setSelectedAlcohols)
+            <div>
+              {renderAlcoholList()}
+
+              {selectedAlcohol && (
+                <div className="mt-4 p-4 rounded-2xl border border-gray-200 bg-white">
+                  <p className="text-sm font-semibold text-gray-800 mb-3">
+                    ¿Solo o con refresco?
+                  </p>
+                  <div className="grid grid-cols-2 gap-2">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setDrinkStyle('solo')
+                        setSelectedMixers([])
+                        setTab('alcohol')
+                      }}
+                      className={`px-4 py-3 rounded-xl border text-sm font-medium transition ${
+                        drinkStyle === 'solo'
+                          ? 'bg-emerald-500 border-emerald-600 text-white'
+                          : 'bg-white border-gray-200 text-gray-700 hover:bg-gray-50'
+                      }`}
+                    >
+                      Solo
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setDrinkStyle('mixer')
+                        setTab('mixer')
+                      }}
+                      className={`px-4 py-3 rounded-xl border text-sm font-medium transition ${
+                        drinkStyle === 'mixer'
+                          ? 'bg-emerald-500 border-emerald-600 text-white'
+                          : 'bg-white border-gray-200 text-gray-700 hover:bg-gray-50'
+                      }`}
+                    >
+                      Con refresco
+                    </button>
+                  </div>
+                  {drinkStyle === null && (
+                    <p className="text-xs text-gray-400 mt-2">
+                      Selecciona una opción para continuar.
+                    </p>
+                  )}
+                </div>
+              )}
+            </div>
           ) : (
-            renderItemList(mixerItems, selectedMixers, setSelectedMixers)
+            <div>
+              {drinkStyle !== 'mixer' ? (
+                <div className="text-center py-10 text-gray-400">
+                  <p className="text-sm">
+                    Primero elige un alcohol y pulsa “Con refresco”.
+                  </p>
+                </div>
+              ) : (
+                <div>
+                  <p className="text-sm text-gray-500 mb-3">
+                    Puedes elegir varios refrescos, pero sin repetir el mismo.
+                  </p>
+                  {renderMixerList()}
+                </div>
+              )}
+            </div>
           )}
         </div>
 
@@ -279,7 +362,11 @@ export default function CustomDrinkBuilder({ onAddToCart, onClose }: Props) {
           </div>
           <button
             onClick={handleConfirm}
-            disabled={totalItems === 0}
+            disabled={
+              !selectedAlcohol ||
+              drinkStyle === null ||
+              (drinkStyle === 'mixer' && selectedMixers.length === 0)
+            }
             className="w-full py-3 rounded-xl font-medium text-white bg-primary-600 hover:bg-primary-700 disabled:bg-gray-300 disabled:cursor-not-allowed transition flex items-center justify-center gap-2"
           >
             <Plus className="w-5 h-5" />

@@ -10,6 +10,9 @@ dist/
 .vscode/
 .idea/
 
+# TypeScript build artifacts
+*.tsbuildinfo
+
 # OS
 .DS_Store
 Thumbs.db

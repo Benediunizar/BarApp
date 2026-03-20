@@ -10,6 +10,10 @@ import {
   Package,
   RefreshCw,
   ScanLine,
+  ArrowUpDown,
+  ArrowUp,
+  ArrowDown,
+  SlidersHorizontal,
 } from 'lucide-react'
 import OrderDetails from './OrderDetails'
 import QRScanner from './QRScanner'
@@ -49,6 +53,93 @@ const STATUS_CONFIG = {
 
 type FilterStatus = 'all' | 'pending' | 'preparing' | 'ready' | 'completed'
 
+type SortKey =
+  | 'created_at'
+  | 'total'
+  | 'alcohol'
+  | 'items'
+  | 'pickup_code'
+  | 'client'
+
+type SortDir = 'asc' | 'desc'
+
+function safeDateMs(value: string | undefined) {
+  const ms = value ? Date.parse(value) : Number.NaN
+  return Number.isFinite(ms) ? ms : 0
+}
+
+function normalizeText(value: string | undefined) {
+  return (value || '').trim().toLocaleLowerCase('es-ES')
+}
+
+function isAlcoholicMenuItemName(name: string | undefined) {
+  const normalized = normalizeText(name)
+  if (!normalized) return false
+  // Heurística simple para diferenciar “sin alcohol”
+  if (normalized.includes('sin alcohol') || normalized.includes('0,0') || normalized.includes('0.0')) {
+    return false
+  }
+  // Cervezas/cócteles típicamente son alcohólicas
+  return (
+    normalized.includes('cerveza') ||
+    normalized.includes('caña') ||
+    normalized.includes('jarra') ||
+    normalized.includes('vino') ||
+    normalized.includes('copa') ||
+    normalized.includes('whisky') ||
+    normalized.includes('ginebra') ||
+    normalized.includes('ron') ||
+    normalized.includes('vodka') ||
+    normalized.includes('tequila')
+  )
+}
+
+function isAlcoholicMenuItemCategory(category: string | undefined) {
+  const normalized = normalizeText(category)
+  if (!normalized) return false
+  return normalized === 'cervezas' || normalized === 'alcohol' || normalized.includes('vino')
+}
+
+function getOrderItemCount(order: Order) {
+  const items = order.items || []
+  return items.reduce((sum, i) => sum + (i.quantity || 0), 0)
+}
+
+function getOrderAlcoholUnits(order: Order) {
+  const items = order.items || []
+  return items.reduce((sum, i) => {
+    const ingredientType = (i.ingredient as { type?: string } | undefined)?.type
+    const menuName = (i.menu_item as { name?: string } | undefined)?.name
+    const menuCategory = (i.menu_item as { category?: string } | undefined)?.category
+    const isAlcoholic =
+      ingredientType === 'alcohol' ||
+      isAlcoholicMenuItemCategory(menuCategory) ||
+      isAlcoholicMenuItemName(menuName)
+    return sum + (isAlcoholic ? i.quantity || 0 : 0)
+  }, 0)
+}
+
+function compareNumbers(a: number, b: number, dir: SortDir) {
+  const delta = a - b
+  return dir === 'asc' ? delta : -delta
+}
+
+function compareText(a: string, b: string, dir: SortDir) {
+  const delta = a.localeCompare(b, 'es-ES', { sensitivity: 'base' })
+  return dir === 'asc' ? delta : -delta
+}
+
+function formatElapsedSince(createdAt: string, nowMs: number) {
+  const createdMs = safeDateMs(createdAt)
+  const diffMs = Math.max(0, nowMs - createdMs)
+  const totalMinutes = Math.floor(diffMs / 60000)
+  const hours = Math.floor(totalMinutes / 60)
+  const minutes = totalMinutes % 60
+
+  if (hours <= 0) return `hace ${minutes}m`
+  return `hace ${hours}h ${minutes.toString().padStart(2, '0')}m`
+}
+
 function OrderList({ profile, onLogout }: Props) {
   const [orders, setOrders] = useState<Order[]>([])
   const [loading, setLoading] = useState(true)
@@ -56,11 +147,20 @@ function OrderList({ profile, onLogout }: Props) {
   const [selectedOrder, setSelectedOrder] = useState<Order | null>(null)
   const [showScanner, setShowScanner] = useState(false)
   const [scanError, setScanError] = useState('')
+  const [nowMs, setNowMs] = useState(() => Date.now())
+
+  const [sortKey, setSortKey] = useState<SortKey>('created_at')
+  const [sortDir, setSortDir] = useState<SortDir>('desc')
+
+  const [optionsOpen, setOptionsOpen] = useState(false)
+  const [bulkUpdating, setBulkUpdating] = useState(false)
 
   const fetchOrders = useCallback(async () => {
     const query = supabase
       .from('orders')
-      .select('*')
+      .select(
+        '*, items:order_items(*, menu_item:menu_items(*), ingredient:drink_ingredients(*))'
+      )
       .in('status', ['pending', 'preparing', 'ready', 'completed'])
       .order('created_at', { ascending: false })
 
@@ -76,6 +176,11 @@ function OrderList({ profile, onLogout }: Props) {
     const interval = setInterval(fetchOrders, 5000)
     return () => clearInterval(interval)
   }, [fetchOrders])
+
+  useEffect(() => {
+    const interval = setInterval(() => setNowMs(Date.now()), 30000)
+    return () => clearInterval(interval)
+  }, [])
 
   const updateOrderStatus = async (
     orderId: string,
@@ -94,6 +199,32 @@ function OrderList({ profile, onLogout }: Props) {
         setSelectedOrder((prev) => (prev ? { ...prev, status: newStatus } : null))
       }
     }
+  }
+
+  const markAllAsCompleted = async () => {
+    if (bulkUpdating) return
+    const active = orders.filter((o) => o.status !== 'completed')
+    if (active.length === 0) return
+
+    const ok = window.confirm(
+      `¿Marcar como entregados todos los pedidos activos? (Total: ${active.length})`
+    )
+    if (!ok) return
+
+    setBulkUpdating(true)
+    const { error } = await supabase
+      .from('orders')
+      .update({ status: 'completed' })
+      .in('status', ['pending', 'preparing', 'ready'])
+
+    if (!error) {
+      setOrders((prev) =>
+        prev.map((o) => (o.status === 'completed' ? o : { ...o, status: 'completed' }))
+      )
+      setSelectedOrder((prev) => (prev ? { ...prev, status: 'completed' } : null))
+      setOptionsOpen(false)
+    }
+    setBulkUpdating(false)
   }
 
   const handleQRScan = async (data: string) => {
@@ -132,6 +263,38 @@ function OrderList({ profile, onLogout }: Props) {
   const activeOrders = orders.filter((o) => o.status !== 'completed')
   const filteredOrders =
     filter === 'all' ? activeOrders : orders.filter((o) => o.status === filter)
+
+  const sortedOrders = [...filteredOrders].sort((a, b) => {
+    let primary = 0
+    switch (sortKey) {
+      case 'created_at':
+        primary = compareNumbers(safeDateMs(a.created_at), safeDateMs(b.created_at), sortDir)
+        break
+      case 'total':
+        primary = compareNumbers(a.total || 0, b.total || 0, sortDir)
+        break
+      case 'alcohol':
+        primary = compareNumbers(getOrderAlcoholUnits(a), getOrderAlcoholUnits(b), sortDir)
+        break
+      case 'items':
+        primary = compareNumbers(getOrderItemCount(a), getOrderItemCount(b), sortDir)
+        break
+      case 'pickup_code':
+        primary = compareText(normalizeText(a.pickup_code), normalizeText(b.pickup_code), sortDir)
+        break
+      case 'client':
+        primary = compareText(normalizeText(a.user_name), normalizeText(b.user_name), sortDir)
+        break
+      default:
+        primary = 0
+    }
+
+    if (primary !== 0) return primary
+    // Desempate estable: más nuevo primero
+    const byDate = safeDateMs(b.created_at) - safeDateMs(a.created_at)
+    if (byDate !== 0) return byDate
+    return (a.id || '').localeCompare(b.id || '')
+  })
 
   const counts = {
     all: activeOrders.length,
@@ -183,6 +346,86 @@ function OrderList({ profile, onLogout }: Props) {
             >
               <RefreshCw className="w-5 h-5" />
             </button>
+
+            <div className="relative">
+              <button
+                type="button"
+                onClick={() => setOptionsOpen((v) => !v)}
+                className={`p-2 rounded-xl transition ${
+                  optionsOpen ? 'text-primary-600 bg-primary-50' : 'text-gray-400 hover:text-primary-600'
+                }`}
+                title="Opciones"
+              >
+                <SlidersHorizontal className="w-5 h-5" />
+              </button>
+
+              {optionsOpen && (
+                <>
+                  <button
+                    type="button"
+                    className="fixed inset-0 z-40 cursor-default"
+                    aria-label="Cerrar opciones"
+                    onClick={() => setOptionsOpen(false)}
+                  />
+                  <div className="absolute right-0 mt-2 w-[320px] z-50 bg-white border border-gray-200 rounded-2xl shadow-lg overflow-hidden">
+                    <div className="p-4 border-b border-gray-100">
+                      <div className="flex items-center gap-2 mb-3">
+                        <ArrowUpDown className="w-4 h-4 text-gray-400" />
+                        <p className="text-sm font-semibold text-gray-700">Ordenación</p>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <select
+                          value={sortKey}
+                          onChange={(e) => setSortKey(e.target.value as SortKey)}
+                          className="flex-1 text-sm text-gray-700 bg-white border border-gray-200 rounded-xl px-3 py-2 outline-none focus:ring-2 focus:ring-primary-500"
+                        >
+                          <option value="created_at">Antigüedad</option>
+                          <option value="total">Precio</option>
+                          <option value="alcohol">Alcohol</option>
+                          <option value="items">Cantidad</option>
+                          <option value="client">Cliente</option>
+                          <option value="pickup_code">Código</option>
+                        </select>
+                        <button
+                          type="button"
+                          onClick={() => setSortDir((d) => (d === 'asc' ? 'desc' : 'asc'))}
+                          className="p-2 border border-gray-200 rounded-xl hover:bg-gray-50 transition"
+                          title={sortDir === 'asc' ? 'Ascendente' : 'Descendente'}
+                        >
+                          {sortDir === 'asc' ? (
+                            <ArrowUp className="w-4 h-4 text-gray-600" />
+                          ) : (
+                            <ArrowDown className="w-4 h-4 text-gray-600" />
+                          )}
+                        </button>
+                      </div>
+                    </div>
+
+                    <div className="p-4">
+                      <p className="text-sm font-semibold text-gray-700 mb-3">Acciones</p>
+                      <button
+                        type="button"
+                        onClick={markAllAsCompleted}
+                        disabled={bulkUpdating || orders.every((o) => o.status === 'completed')}
+                        className="w-full px-4 py-3 rounded-xl bg-white border border-gray-200 text-gray-700 hover:bg-gray-50 transition disabled:opacity-50 disabled:hover:bg-white flex items-center justify-between"
+                        title="Marca como entregados todos los pedidos activos"
+                      >
+                        <span className="text-sm font-medium">Marcar todos como entregados</span>
+                        {bulkUpdating ? (
+                          <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-gray-500"></div>
+                        ) : (
+                          <CheckCircle className="w-4 h-4 text-emerald-600" />
+                        )}
+                      </button>
+                      <p className="mt-2 text-xs text-gray-400">
+                        Afecta a los pedidos no entregados.
+                      </p>
+                    </div>
+                  </div>
+                </>
+              )}
+            </div>
+
             <button
               onClick={onLogout}
               className="p-2 text-gray-400 hover:text-red-500 transition"
@@ -237,7 +480,7 @@ function OrderList({ profile, onLogout }: Props) {
           <div className="flex justify-center py-12">
             <div className="animate-spin rounded-full h-10 w-10 border-b-2 border-primary-600"></div>
           </div>
-        ) : filteredOrders.length === 0 ? (
+        ) : sortedOrders.length === 0 ? (
           <div className="text-center py-16">
             <CheckCircle className="w-16 h-16 text-gray-300 mx-auto mb-4" />
             <h3 className="text-lg font-medium text-gray-500">
@@ -246,7 +489,7 @@ function OrderList({ profile, onLogout }: Props) {
           </div>
         ) : (
           <div className="space-y-3">
-            {filteredOrders.map((order) => {
+            {sortedOrders.map((order) => {
               const config =
                 STATUS_CONFIG[order.status as keyof typeof STATUS_CONFIG]
               if (!config) return null
@@ -281,6 +524,11 @@ function OrderList({ profile, onLogout }: Props) {
                         hour: '2-digit',
                         minute: '2-digit',
                       })}
+                      {' '}
+                      <span className="inline-flex items-center gap-1 ml-2 text-gray-400">
+                        <Clock className="w-3.5 h-3.5" />
+                        {formatElapsedSince(order.created_at, nowMs)}
+                      </span>
                     </span>
                     <span className="font-bold text-primary-600">
                       {order.total.toFixed(2)}€
